@@ -15,9 +15,9 @@ function shuffle<T>(array: T[]) {
 }
 
 export async function POST() {
-  const players = await prisma.player.findMany({
+  const players = (await prisma.player.findMany({
     orderBy: { id: 'asc' }
-  })
+  })) as any[]
 
   if (players.length < 4) {
     return new Response('Minimum 4 players required', { status: 400 })

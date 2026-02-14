@@ -30,13 +30,6 @@
       "static/chunks/main-app-6878335de3514532.js",
       "static/chunks/app/bracket/page-10d5f50102a2f034.js"
     ],
-    "/page": [
-      "static/chunks/webpack-222847e7db31f839.js",
-      "static/chunks/fd9d1056-803f3afc98c64581.js",
-      "static/chunks/69-bf0faca87d920f27.js",
-      "static/chunks/main-app-6878335de3514532.js",
-      "static/chunks/app/page-3993f9264769990f.js"
-    ],
     "/leaderboard/page": [
       "static/chunks/webpack-222847e7db31f839.js",
       "static/chunks/fd9d1056-803f3afc98c64581.js",
@@ -44,6 +37,13 @@
       "static/chunks/main-app-6878335de3514532.js",
       "static/chunks/166-0b3bfe44d57ab161.js",
       "static/chunks/app/leaderboard/page-25243e53714b8616.js"
+    ],
+    "/page": [
+      "static/chunks/webpack-222847e7db31f839.js",
+      "static/chunks/fd9d1056-803f3afc98c64581.js",
+      "static/chunks/69-bf0faca87d920f27.js",
+      "static/chunks/main-app-6878335de3514532.js",
+      "static/chunks/app/page-3993f9264769990f.js"
     ],
     "/players/page": [
       "static/chunks/webpack-222847e7db31f839.js",
