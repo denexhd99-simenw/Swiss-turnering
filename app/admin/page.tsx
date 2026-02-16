@@ -30,6 +30,8 @@ export default function AdminPage() {
   const [matches, setMatches] = useState<Match[]>([])
   const [savingMatchId, setSavingMatchId] = useState<number | null>(null)
   const [startingKnockout, setStartingKnockout] = useState(false)
+  const [knockoutMessage, setKnockoutMessage] = useState('')
+  const [knockoutError, setKnockoutError] = useState('')
   const [selectedPlayerId, setSelectedPlayerId] = useState<number | null>(null)
 
   async function load() {
@@ -50,6 +52,8 @@ export default function AdminPage() {
 
   async function startSwiss() {
     await fetch('/api/swiss/start', { method: 'POST' })
+    setKnockoutMessage('')
+    setKnockoutError('')
     await load()
   }
 
@@ -72,7 +76,27 @@ export default function AdminPage() {
 
   async function startKnockout() {
     setStartingKnockout(true)
-    await fetch('/api/knockout/start', { method: 'POST' })
+    setKnockoutMessage('')
+    setKnockoutError('')
+
+    const res = await fetch('/api/knockout/start', { method: 'POST' })
+    const maybeJson = await res.json().catch(() => null)
+
+    if (!res.ok) {
+      setKnockoutError(
+        maybeJson?.error ??
+          maybeJson?.message ??
+          'Kunne ikkje starte siste sjanse / knockout.'
+      )
+      setStartingKnockout(false)
+      return
+    }
+
+    setKnockoutMessage(
+      maybeJson?.phase === LAST_CHANCE_PHASE
+        ? 'Siste sjanse er starta. Registrer vinnarar der, og trykk knappen igjen.'
+        : 'Vinn-eller-forsvinn er starta.'
+    )
     await load()
     setStartingKnockout(false)
   }
@@ -92,14 +116,9 @@ export default function AdminPage() {
     [matches]
   )
 
-  const qualifiedPlayers = useMemo(
-    () => players.filter((p) => p.wins >= 3),
-    [players]
-  )
-
   const canStartKnockout = useMemo(
-    () => !knockoutStarted && swissOpenMatches.length === 0 && qualifiedPlayers.length >= 2,
-    [knockoutStarted, swissOpenMatches.length, qualifiedPlayers.length]
+    () => !knockoutStarted && swissOpenMatches.length === 0,
+    [knockoutStarted, swissOpenMatches.length]
   )
 
   const activeMatches = useMemo(() => {
@@ -177,6 +196,12 @@ export default function AdminPage() {
           >
             {lastChanceStarted ? 'Start vinn-eller-forsvinn' : 'Start siste sjanse / knockout'}
           </button>
+        )}
+        {knockoutMessage && (
+          <p className="mt-3 text-sm text-emerald-300">{knockoutMessage}</p>
+        )}
+        {knockoutError && (
+          <p className="mt-3 text-sm text-rose-300">{knockoutError}</p>
         )}
       </div>
 

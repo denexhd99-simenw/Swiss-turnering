@@ -27,7 +27,7 @@ const stageColumns = [
   { title: 'Runde 2', rounds: [2] },
   { title: 'Runde 3', rounds: [3] },
   { title: 'Runde 4', rounds: [4] },
-  { title: 'Siste Sjans', rounds: [5] }
+  { title: 'Runde 5', rounds: [5] }
 ]
 
 const advanceGroups = ['3-0', '3-1', '3-2']
