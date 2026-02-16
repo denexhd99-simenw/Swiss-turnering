@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { buildOpponentMap, buildPairsByPriority, shuffle } from '@/lib/swiss-pairing'
 
 const SWISS_PHASE = 'SWISS'
 const POINTS_PER_WIN = 3
@@ -9,17 +10,7 @@ type SwissPlayer = {
   id: number
   wins: number
   losses: number
-}
-
-function shuffle<T>(array: T[]) {
-  const copy = [...array]
-  for (let i = copy.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    const temp = copy[i]
-    copy[i] = copy[j]
-    copy[j] = temp
-  }
-  return copy
+  departmentId: number
 }
 
 function sortedGroupKeys(players: SwissPlayer[]) {
@@ -50,7 +41,7 @@ export async function POST() {
       wins: { lt: ADVANCE_WINS },
       losses: { lt: ELIMINATION_LOSSES }
     },
-    select: { id: true, wins: true, losses: true },
+    select: { id: true, wins: true, losses: true, departmentId: true },
     orderBy: [
       { wins: 'desc' },
       { losses: 'asc' },
@@ -78,6 +69,19 @@ export async function POST() {
     return Response.json({ success: true, round: nextRound, message: 'Round already exists' })
   }
 
+  const playedMatches = await prisma.match.findMany({
+    where: {
+      phase: SWISS_PHASE,
+      player1Id: { not: null },
+      player2Id: { not: null }
+    },
+    select: {
+      player1Id: true,
+      player2Id: true
+    }
+  })
+  const opponents = buildOpponentMap(playedMatches)
+
   const grouped: Record<string, SwissPlayer[]> = {}
   for (const player of activePlayers) {
     const key = `${player.wins}-${player.losses}`
@@ -93,15 +97,9 @@ export async function POST() {
     const group = shuffle(grouped[key])
     if (carry) group.unshift(carry)
 
-    if (group.length % 2 === 1) {
-      carry = group.pop() ?? null
-    } else {
-      carry = null
-    }
-
-    for (let i = 0; i < group.length; i += 2) {
-      pairings.push({ player1Id: group[i].id, player2Id: group[i + 1].id })
-    }
+    const groupedPairs = buildPairsByPriority(group, opponents)
+    carry = groupedPairs.carry
+    pairings.push(...groupedPairs.pairs)
   }
 
   await prisma.$transaction(async (tx) => {

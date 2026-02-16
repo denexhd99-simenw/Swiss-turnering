@@ -1,18 +1,8 @@
 import { prisma } from '@/lib/prisma'
+import { buildPairsByPriority } from '@/lib/swiss-pairing'
 
 const SWISS_PHASE = 'SWISS'
 const POINTS_PER_WIN = 3
-
-function shuffle<T>(array: T[]) {
-  const copy = [...array]
-  for (let i = copy.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    const temp = copy[i]
-    copy[i] = copy[j]
-    copy[j] = temp
-  }
-  return copy
-}
 
 export async function POST() {
   const players = (await prisma.player.findMany({
@@ -23,7 +13,7 @@ export async function POST() {
     return new Response('Minimum 4 players required', { status: 400 })
   }
 
-  const shuffled = shuffle(players)
+  const { pairs, carry } = buildPairsByPriority(players, new Map())
 
   await prisma.$transaction(async (tx) => {
     await tx.match.deleteMany()
@@ -35,36 +25,32 @@ export async function POST() {
       }
     })
 
-    for (let i = 0; i < shuffled.length; i += 2) {
-      const p1 = shuffled[i]
-      const p2 = shuffled[i + 1]
-
-      if (!p2) {
-        await tx.match.create({
-          data: {
-            phase: SWISS_PHASE,
-            round: 1,
-            player1Id: p1.id,
-            player2Id: null,
-            winnerId: p1.id
-          }
-        })
-        await tx.player.update({
-          where: { id: p1.id },
-          data: {
-            wins: { increment: 1 },
-            points: { increment: POINTS_PER_WIN }
-          }
-        })
-        continue
-      }
-
+    for (const pair of pairs) {
       await tx.match.create({
         data: {
           phase: SWISS_PHASE,
           round: 1,
-          player1Id: p1.id,
-          player2Id: p2.id
+          player1Id: pair.player1Id,
+          player2Id: pair.player2Id
+        }
+      })
+    }
+
+    if (carry) {
+      await tx.match.create({
+        data: {
+          phase: SWISS_PHASE,
+          round: 1,
+          player1Id: carry.id,
+          player2Id: null,
+          winnerId: carry.id
+        }
+      })
+      await tx.player.update({
+        where: { id: carry.id },
+        data: {
+          wins: { increment: 1 },
+          points: { increment: POINTS_PER_WIN }
         }
       })
     }
