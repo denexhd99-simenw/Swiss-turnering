@@ -20,6 +20,9 @@ type Match = {
   player2: { id: number; name: string } | null
 }
 
+const LAST_CHANCE_PHASE = 'LAST_CHANCE'
+const KNOCKOUT_PHASE = 'KNOCKOUT'
+
 export default function AdminPage() {
   const [authenticated, setAuthenticated] = useState(false)
   const [password, setPassword] = useState('')
@@ -75,7 +78,12 @@ export default function AdminPage() {
   }
 
   const knockoutStarted = useMemo(
-    () => matches.some((m) => m.phase === 'KNOCKOUT'),
+    () => matches.some((m) => m.phase === KNOCKOUT_PHASE),
+    [matches]
+  )
+
+  const lastChanceStarted = useMemo(
+    () => matches.some((m) => m.phase === LAST_CHANCE_PHASE),
     [matches]
   )
 
@@ -96,18 +104,36 @@ export default function AdminPage() {
 
   const activeMatches = useMemo(() => {
     const openSwiss = matches.filter((m) => m.phase === 'SWISS' && m.player2 && !m.winnerId)
-    const openKnockout = matches.filter((m) => m.phase === 'KNOCKOUT' && m.player2 && !m.winnerId)
+    const openLastChance = matches.filter((m) => m.phase === LAST_CHANCE_PHASE && m.player2 && !m.winnerId)
+    const openKnockout = matches.filter((m) => m.phase === KNOCKOUT_PHASE && m.player2 && !m.winnerId)
 
-    const selected = openSwiss.length > 0 ? openSwiss : openKnockout
+    const selected =
+      openSwiss.length > 0 ? openSwiss : openLastChance.length > 0 ? openLastChance : openKnockout
     const rounds = selected.map((m) => m.round)
     const currentRound = rounds.length ? Math.min(...rounds) : null
 
     return {
       currentRound,
-      phase: openSwiss.length > 0 ? 'SWISS' : openKnockout.length > 0 ? 'KNOCKOUT' : null,
+      phase:
+        openSwiss.length > 0
+          ? 'SWISS'
+          : openLastChance.length > 0
+            ? LAST_CHANCE_PHASE
+            : openKnockout.length > 0
+              ? KNOCKOUT_PHASE
+              : null,
       matches: currentRound ? selected.filter((m) => m.round === currentRound) : []
     }
   }, [matches])
+
+  const editableMatches = useMemo(
+    () =>
+      [...matches]
+        .filter((m) => !!m.player1 && !!m.player2)
+        .sort((a, b) => b.id - a.id)
+        .slice(0, 30),
+    [matches]
+  )
 
   if (!authenticated) {
     return (
@@ -149,7 +175,7 @@ export default function AdminPage() {
             disabled={startingKnockout}
             className="ml-3 mt-5 rounded-lg bg-amber-500 px-6 py-2 font-bold text-slate-950 hover:bg-amber-400 disabled:opacity-60"
           >
-            Start vinn-eller-forsvinn
+            {lastChanceStarted ? 'Start vinn-eller-forsvinn' : 'Start siste sjanse / knockout'}
           </button>
         )}
       </div>
@@ -176,7 +202,11 @@ export default function AdminPage() {
         <h2 className="mb-1 text-2xl font-black tracking-wide text-amber-300">Aktive kampar</h2>
         <p className="mb-5 text-slate-400">
           {activeMatches.currentRound
-            ? `${activeMatches.phase === 'SWISS' ? 'Swiss' : 'Knockout'} runde ${activeMatches.currentRound}`
+            ? `${activeMatches.phase === 'SWISS'
+                ? 'Swiss'
+                : activeMatches.phase === LAST_CHANCE_PHASE
+                  ? 'Siste sjanse'
+                  : 'Knockout'} runde ${activeMatches.currentRound}`
             : knockoutStarted
               ? 'Knockout ferdig, vinnar staar igjen.'
               : 'Ingen opne kampar akkurat no'}
@@ -217,6 +247,52 @@ export default function AdminPage() {
           {activeMatches.matches.length === 0 && (
             <div className="rounded-xl border border-dashed border-slate-700 p-5 text-sm text-slate-400">
               Ventar paa neste runde eller turnering er ferdig.
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-cyan-500/35 bg-slate-950/75 p-6">
+        <h2 className="mb-1 text-2xl font-black tracking-wide text-cyan-200">Endre vinnar (siste 30 kampar)</h2>
+        <p className="mb-5 text-slate-400">Bruk denne dersom du har trykt feil vinnar.</p>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          {editableMatches.map((match) => (
+            <div key={match.id} className="rounded-xl border border-cyan-400/45 bg-[#0c1b33] p-4">
+              <div className="mb-3 text-xs font-bold text-cyan-300">
+                Kamp #{match.id} • {match.phase} • Runde {match.round}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  disabled={savingMatchId === match.id || !match.player1}
+                  onClick={() => match.player1 && setWinner(match.id, match.player1.id)}
+                  className={`rounded-lg px-3 py-3 text-left font-semibold transition ${
+                    match.winnerId === match.player1?.id
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-slate-800 text-slate-100 hover:bg-emerald-700/70'
+                  }`}
+                >
+                  {match.player1?.name ?? 'TBA'}
+                </button>
+
+                <button
+                  disabled={savingMatchId === match.id || !match.player2}
+                  onClick={() => match.player2 && setWinner(match.id, match.player2.id)}
+                  className={`rounded-lg px-3 py-3 text-left font-semibold transition ${
+                    match.winnerId === match.player2?.id
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-slate-800 text-slate-100 hover:bg-emerald-700/70'
+                  }`}
+                >
+                  {match.player2?.name ?? 'TBA'}
+                </button>
+              </div>
+            </div>
+          ))}
+
+          {editableMatches.length === 0 && (
+            <div className="rounded-xl border border-dashed border-slate-700 p-5 text-sm text-slate-400">
+              Ingen redigerbare kampar enno.
             </div>
           )}
         </div>

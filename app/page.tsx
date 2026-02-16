@@ -45,13 +45,6 @@ export default function HomePage() {
     return () => clearInterval(timer)
   }, [])
 
-  const stats = useMemo(() => {
-    const qualified = players.filter((p) => p.wins >= 3).length
-    const eliminated = players.filter((p) => p.losses >= 3).length
-    const inPlay = players.length - qualified - eliminated
-    return { qualified, eliminated, inPlay }
-  }, [players])
-
   const filteredMatches = useMemo(() => {
     if (!selectedPlayerId) return matches
     return matches.filter(
@@ -61,26 +54,6 @@ export default function HomePage() {
 
   return (
     <div className="space-y-8">
-      <div className="rounded-2xl border border-cyan-500/40 bg-slate-950/80 p-6">
-        <h1 className="text-4xl font-black tracking-wide text-cyan-200">Turnering Oversikt</h1>
-        <p className="mt-2 text-slate-300">Swiss format: 3 wins vidare, 3 tap ute.</p>
-
-        <div className="mt-6 grid gap-4 md:grid-cols-3">
-          <div className="rounded-xl border border-emerald-500/50 bg-emerald-950/40 p-4">
-            <div className="text-xs font-bold text-emerald-300">VIDARE</div>
-            <div className="text-3xl font-black text-emerald-200">{stats.qualified}</div>
-          </div>
-          <div className="rounded-xl border border-cyan-500/50 bg-slate-900/80 p-4">
-            <div className="text-xs font-bold text-cyan-300">I SPEL</div>
-            <div className="text-3xl font-black text-cyan-200">{stats.inPlay}</div>
-          </div>
-          <div className="rounded-xl border border-rose-500/50 bg-rose-950/40 p-4">
-            <div className="text-xs font-bold text-rose-300">UTE</div>
-            <div className="text-3xl font-black text-rose-200">{stats.eliminated}</div>
-          </div>
-        </div>
-      </div>
-
       <div className="rounded-2xl border border-cyan-500/30 bg-slate-950/60 p-4">
         <label className="mb-2 block text-sm font-semibold text-cyan-300">Marker spelar</label>
         <select

@@ -17,7 +17,7 @@ export default function RootLayout({
             <div className="max-w-[83rem] mx-auto px-6 py-4 flex justify-between items-center">
               <div className="flex items-center gap-3 text-xl font-bold">
                 <Trophy className="text-blue-500" />
-                Bordtennis Dashboard
+                Oversikt over Radhuset's raaeste bordtenniskonkuranse
               </div>
 
               <div className="flex gap-6 text-slate-300">
