@@ -32,7 +32,7 @@ const COUNTERS_DOC = 'counters'
 async function nextId(counterKey: string) {
   const ref = db.collection(META_COLLECTION).doc(COUNTERS_DOC)
 
-  return db.runTransaction(async (tx) => {
+  return db.runTransaction(async (tx: any) => {
     const snap = await tx.get(ref)
     const current = snap.exists ? (snap.data()?.[counterKey] ?? 0) : 0
     const next = Number(current) + 1
@@ -42,22 +42,12 @@ async function nextId(counterKey: string) {
   })
 }
 
-async function listDepartments() {
-  const snapshot = await db.collection('departments').get()
-  return snapshot.docs.map((doc: any) => doc.data() as Department)
+function normalizeOrderBy(orderBy?: AnyObject | AnyObject[]) {
+  if (!orderBy) return []
+  return Array.isArray(orderBy) ? orderBy : [orderBy]
 }
 
-async function listPlayers() {
-  const snapshot = await db.collection('players').get()
-  return snapshot.docs.map((doc: any) => doc.data() as Player)
-}
-
-async function listMatches() {
-  const snapshot = await db.collection('matches').get()
-  return snapshot.docs.map((doc: any) => doc.data() as Match)
-}
-
-function applyWhere<T extends AnyObject>(items: T[], where?: AnyObject): T[] {
+function applyWhereInMemory<T extends AnyObject>(items: T[], where?: AnyObject): T[] {
   if (!where) return items
 
   return items.filter((item) => {
@@ -88,14 +78,13 @@ function applyWhere<T extends AnyObject>(items: T[], where?: AnyObject): T[] {
         return false
       }
     }
-
     return true
   })
 }
 
-function applyOrderBy<T extends AnyObject>(items: T[], orderBy?: AnyObject | AnyObject[]): T[] {
-  if (!orderBy) return [...items]
-  const criteria = Array.isArray(orderBy) ? orderBy : [orderBy]
+function applyOrderByInMemory<T extends AnyObject>(items: T[], orderBy?: AnyObject | AnyObject[]) {
+  const criteria = normalizeOrderBy(orderBy)
+  if (criteria.length === 0) return [...items]
 
   return [...items].sort((a, b) => {
     for (const c of criteria) {
@@ -110,14 +99,8 @@ function applyOrderBy<T extends AnyObject>(items: T[], orderBy?: AnyObject | Any
       if (av < bv) return -1 * dir
       if (av > bv) return 1 * dir
     }
-
     return 0
   })
-}
-
-function applyTake<T>(items: T[], take?: number): T[] {
-  if (typeof take !== 'number') return items
-  return items.slice(0, take)
 }
 
 function applySelect<T extends AnyObject>(item: T, select?: AnyObject) {
@@ -149,39 +132,132 @@ function applyUpdate<T extends AnyObject>(item: T, data: AnyObject): T {
   return copy as T
 }
 
+async function fetchDocs(collection: string, args: AnyObject = {}) {
+  let query: any = db.collection(collection)
+  let inequalityField: string | null = null
+
+  const where = args.where ?? {}
+  for (const [field, condition] of Object.entries(where)) {
+    if (condition && typeof condition === 'object' && !Array.isArray(condition)) {
+      const cond = condition as AnyObject
+      if (Object.prototype.hasOwnProperty.call(condition, 'in')) {
+        query = query.where(field, 'in', cond.in)
+        continue
+      }
+      if (Object.prototype.hasOwnProperty.call(condition, 'not')) {
+        query = query.where(field, '!=', cond.not)
+        inequalityField = inequalityField ?? field
+        continue
+      }
+      if (Object.prototype.hasOwnProperty.call(condition, 'lt')) {
+        query = query.where(field, '<', cond.lt)
+        inequalityField = inequalityField ?? field
+        continue
+      }
+      if (Object.prototype.hasOwnProperty.call(condition, 'lte')) {
+        query = query.where(field, '<=', cond.lte)
+        inequalityField = inequalityField ?? field
+        continue
+      }
+      if (Object.prototype.hasOwnProperty.call(condition, 'gt')) {
+        query = query.where(field, '>', cond.gt)
+        inequalityField = inequalityField ?? field
+        continue
+      }
+      if (Object.prototype.hasOwnProperty.call(condition, 'gte')) {
+        query = query.where(field, '>=', cond.gte)
+        inequalityField = inequalityField ?? field
+        continue
+      }
+      throw new Error(`Unsupported where condition for ${field}`)
+    } else {
+      query = query.where(field, '==', condition)
+    }
+  }
+
+  const criteria = normalizeOrderBy(args.orderBy)
+  if (inequalityField && !criteria.some((c) => Object.keys(c)[0] === inequalityField)) {
+    query = query.orderBy(inequalityField, 'asc')
+  }
+  for (const c of criteria) {
+    const field = Object.keys(c)[0]
+    const dir = c[field] === 'desc' ? 'desc' : 'asc'
+    query = query.orderBy(field, dir)
+  }
+
+  if (typeof args.take === 'number') {
+    query = query.limit(args.take)
+  }
+
+  try {
+    const snapshot = await query.get()
+    return snapshot.docs.map((doc: any) => doc.data())
+  } catch {
+    const fallback = await db.collection(collection).get()
+    let rows = fallback.docs.map((doc: any) => doc.data())
+    rows = applyWhereInMemory(rows, args.where)
+    rows = applyOrderByInMemory(rows, args.orderBy)
+    if (typeof args.take === 'number') rows = rows.slice(0, args.take)
+    return rows
+  }
+}
+
+async function getDepartmentsByIds(ids: number[]) {
+  const unique = Array.from(new Set(ids.filter((id) => Number.isInteger(id))))
+  if (unique.length === 0) return new Map<number, Department>()
+
+  const chunks: number[][] = []
+  for (let i = 0; i < unique.length; i += 10) chunks.push(unique.slice(i, i + 10))
+
+  const rows: Department[] = []
+  for (const chunk of chunks) {
+    const docs = await fetchDocs('departments', { where: { id: { in: chunk } } })
+    rows.push(...(docs as Department[]))
+  }
+  return new Map(rows.map((d) => [d.id, d]))
+}
+
+async function getPlayersByIds(ids: number[]) {
+  const unique = Array.from(new Set(ids.filter((id) => Number.isInteger(id))))
+  if (unique.length === 0) return new Map<number, Player>()
+
+  const chunks: number[][] = []
+  for (let i = 0; i < unique.length; i += 10) chunks.push(unique.slice(i, i + 10))
+
+  const rows: Player[] = []
+  for (const chunk of chunks) {
+    const docs = await fetchDocs('players', { where: { id: { in: chunk } } })
+    rows.push(...(docs as Player[]))
+  }
+  return new Map(rows.map((p) => [p.id, p]))
+}
+
 async function withDepartment(players: AnyObject[]) {
-  const departments = await listDepartments()
-  const byId = new Map(departments.map((d) => [d.id, d]))
-  return players.map((p) => ({ ...p, department: byId.get(p.departmentId) ?? null }))
+  const map = await getDepartmentsByIds(players.map((p) => p.departmentId))
+  return players.map((p) => ({ ...p, department: map.get(p.departmentId) ?? null }))
 }
 
 async function withMatchIncludes(matches: AnyObject[], include?: AnyObject) {
   if (!include) return matches
-  const players = await listPlayers()
-  const byId = new Map(players.map((p) => [p.id, p]))
+  const ids: number[] = []
+  if (include.player1) ids.push(...matches.map((m) => m.player1Id).filter(Boolean))
+  if (include.player2) ids.push(...matches.map((m) => m.player2Id).filter(Boolean))
+  if (include.winner) ids.push(...matches.map((m) => m.winnerId).filter(Boolean))
+  const playersById = await getPlayersByIds(ids as number[])
 
   return matches.map((m) => ({
     ...m,
-    player1: include.player1 ? (m.player1Id ? byId.get(m.player1Id) ?? null : null) : undefined,
-    player2: include.player2 ? (m.player2Id ? byId.get(m.player2Id) ?? null : null) : undefined,
-    winner: include.winner ? (m.winnerId ? byId.get(m.winnerId) ?? null : null) : undefined
+    player1: include.player1 ? (m.player1Id ? playersById.get(m.player1Id) ?? null : null) : undefined,
+    player2: include.player2 ? (m.player2Id ? playersById.get(m.player2Id) ?? null : null) : undefined,
+    winner: include.winner ? (m.winnerId ? playersById.get(m.winnerId) ?? null : null) : undefined
   }))
 }
 
 const player = {
   async findMany(args: AnyObject = {}) {
-    let items = await listPlayers()
-    items = applyWhere(items, args.where)
-    items = applyOrderBy(items, args.orderBy)
-    items = applyTake(items, args.take)
-
-    let result: any[] = items
-    if (args.include?.department) {
-      result = await withDepartment(result)
-    }
-    if (args.select) {
-      result = result.map((item) => applySelect(item, args.select))
-    }
+    let result: any[] = await fetchDocs('players', args)
+    if (args.include?.department) result = await withDepartment(result)
+    if (args.select) result = result.map((item) => applySelect(item, args.select))
     return result
   },
 
@@ -219,8 +295,7 @@ const player = {
   },
 
   async updateMany(args: AnyObject) {
-    const all = await listPlayers()
-    const filtered = applyWhere(all, args.where)
+    const filtered = (await fetchDocs('players', args)) as Player[]
     let count = 0
 
     for (const p of filtered) {
@@ -235,16 +310,9 @@ const player = {
 
 const department = {
   async findMany(args: AnyObject = {}) {
-    let items = await listDepartments()
-    items = applyWhere(items, args.where)
-    items = applyOrderBy(items, args.orderBy)
-    items = applyTake(items, args.take)
-
-    if (args.select) {
-      return items.map((item) => applySelect(item, args.select))
-    }
-
-    return items
+    let result: any[] = await fetchDocs('departments', args)
+    if (args.select) result = result.map((item) => applySelect(item, args.select))
+    return result
   },
 
   async findUnique(args: AnyObject) {
@@ -273,18 +341,9 @@ const department = {
 
 const match = {
   async findMany(args: AnyObject = {}) {
-    let items = await listMatches()
-    items = applyWhere(items, args.where)
-    items = applyOrderBy(items, args.orderBy)
-    items = applyTake(items, args.take)
-
-    let result: any[] = items
-    if (args.include) {
-      result = await withMatchIncludes(result, args.include)
-    }
-    if (args.select) {
-      result = result.map((item) => applySelect(item, args.select))
-    }
+    let result: any[] = await fetchDocs('matches', args)
+    if (args.include) result = await withMatchIncludes(result, args.include)
+    if (args.select) result = result.map((item) => applySelect(item, args.select))
     return result
   },
 
@@ -300,20 +359,55 @@ const match = {
   },
 
   async findFirst(args: AnyObject = {}) {
-    const list = await this.findMany(args)
+    const list = await this.findMany({ ...args, take: args.take ?? 1 })
     return list[0] ?? null
   },
 
   async count(args: AnyObject = {}) {
-    const items = await listMatches()
-    return applyWhere(items, args.where).length
+    try {
+      let query: any = db.collection('matches')
+      const where = args.where ?? {}
+
+      for (const [field, condition] of Object.entries(where)) {
+        if (condition && typeof condition === 'object' && !Array.isArray(condition)) {
+          const cond = condition as AnyObject
+          if (Object.prototype.hasOwnProperty.call(condition, 'in')) {
+            query = query.where(field, 'in', cond.in)
+          } else if (Object.prototype.hasOwnProperty.call(condition, 'not')) {
+            query = query.where(field, '!=', cond.not)
+          } else if (Object.prototype.hasOwnProperty.call(condition, 'lt')) {
+            query = query.where(field, '<', cond.lt)
+          } else if (Object.prototype.hasOwnProperty.call(condition, 'lte')) {
+            query = query.where(field, '<=', cond.lte)
+          } else if (Object.prototype.hasOwnProperty.call(condition, 'gt')) {
+            query = query.where(field, '>', cond.gt)
+          } else if (Object.prototype.hasOwnProperty.call(condition, 'gte')) {
+            query = query.where(field, '>=', cond.gte)
+          } else {
+            throw new Error('unsupported-count-where')
+          }
+        } else {
+          query = query.where(field, '==', condition)
+        }
+      }
+
+      const agg = await query.count().get()
+      return agg.data().count
+    } catch {
+      const items = await fetchDocs('matches', args)
+      return items.length
+    }
   },
 
   async aggregate(args: AnyObject = {}) {
-    const items = applyWhere(await listMatches(), args.where)
     if (args._max?.round) {
-      const max = items.length ? Math.max(...items.map((m) => Number(m.round ?? 0))) : null
-      return { _max: { round: max } }
+      const rows = await fetchDocs('matches', {
+        where: args.where,
+        orderBy: { round: 'desc' },
+        take: 1
+      })
+      const top = rows[0] as Match | undefined
+      return { _max: { round: top ? Number(top.round) : null } }
     }
     return { _max: {} }
   },
@@ -364,8 +458,7 @@ const match = {
   },
 
   async deleteMany(args: AnyObject = {}) {
-    const all = await listMatches()
-    const filtered = applyWhere(all, args.where)
+    const filtered = (await fetchDocs('matches', args)) as Match[]
     let count = 0
 
     for (const m of filtered) {

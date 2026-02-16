@@ -41,7 +41,10 @@ export default function HomePage() {
 
   useEffect(() => {
     load()
-    const timer = setInterval(load, 4000)
+    const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+      load()
+    }, 20000)
     return () => clearInterval(timer)
   }, [])
 

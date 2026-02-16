@@ -30,6 +30,7 @@ export default function AdminPage() {
   const [matches, setMatches] = useState<Match[]>([])
   const [savingMatchId, setSavingMatchId] = useState<number | null>(null)
   const [startingKnockout, setStartingKnockout] = useState(false)
+  const [startingLastChance, setStartingLastChance] = useState(false)
   const [knockoutMessage, setKnockoutMessage] = useState('')
   const [knockoutError, setKnockoutError] = useState('')
   const [selectedPlayerId, setSelectedPlayerId] = useState<number | null>(null)
@@ -46,7 +47,10 @@ export default function AdminPage() {
   useEffect(() => {
     if (!authenticated) return
     load()
-    const timer = setInterval(load, 3000)
+    const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+      load()
+    }, 15000)
     return () => clearInterval(timer)
   }, [authenticated])
 
@@ -74,12 +78,17 @@ export default function AdminPage() {
     setSavingMatchId(null)
   }
 
-  async function startKnockout() {
-    setStartingKnockout(true)
+  async function startPhase(intent: 'LAST_CHANCE' | 'KNOCKOUT') {
+    if (intent === 'LAST_CHANCE') setStartingLastChance(true)
+    if (intent === 'KNOCKOUT') setStartingKnockout(true)
     setKnockoutMessage('')
     setKnockoutError('')
 
-    const res = await fetch('/api/knockout/start', { method: 'POST' })
+    const res = await fetch('/api/knockout/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ intent })
+    })
     const raw = await res.text()
     let maybeJson: any = null
     try {
@@ -95,7 +104,8 @@ export default function AdminPage() {
           raw ??
           'Kunne ikkje starte siste sjanse / knockout.'
       )
-      setStartingKnockout(false)
+      if (intent === 'LAST_CHANCE') setStartingLastChance(false)
+      if (intent === 'KNOCKOUT') setStartingKnockout(false)
       return
     }
 
@@ -105,7 +115,8 @@ export default function AdminPage() {
         : 'Vinn-eller-forsvinn er starta.'
     )
     await load()
-    setStartingKnockout(false)
+    if (intent === 'LAST_CHANCE') setStartingLastChance(false)
+    if (intent === 'KNOCKOUT') setStartingKnockout(false)
   }
 
   const knockoutStarted = useMemo(
@@ -127,6 +138,22 @@ export default function AdminPage() {
     () => !knockoutStarted && swissOpenMatches.length === 0,
     [knockoutStarted, swissOpenMatches.length]
   )
+
+  const bracketSizes = [4, 8, 16, 32]
+  const extraSlotsNeeded = useMemo(() => {
+    const qualifiedCount = players.filter((p) => p.wins >= 3).length
+    const target = bracketSizes.find((size) => size >= qualifiedCount && size <= players.length)
+    if (!target) return 0
+    return target - qualifiedCount
+  }, [players])
+
+  const openLastChanceMatches = useMemo(
+    () => matches.filter((m) => m.phase === LAST_CHANCE_PHASE && m.player2 && !m.winnerId),
+    [matches]
+  )
+
+  const canStartLastChance = canStartKnockout && !lastChanceStarted && extraSlotsNeeded > 0
+  const canStartPlayoff = canStartKnockout && (extraSlotsNeeded === 0 || (lastChanceStarted && openLastChanceMatches.length === 0))
 
   const activeMatches = useMemo(() => {
     const openSwiss = matches.filter((m) => m.phase === 'SWISS' && m.player2 && !m.winnerId)
@@ -195,15 +222,20 @@ export default function AdminPage() {
         >
           Start turnering
         </button>
-        {canStartKnockout && (
-          <button
-            onClick={startKnockout}
-            disabled={startingKnockout}
-            className="ml-3 mt-5 rounded-lg bg-amber-500 px-6 py-2 font-bold text-slate-950 hover:bg-amber-400 disabled:opacity-60"
-          >
-            {lastChanceStarted ? 'Start vinn-eller-forsvinn' : 'Start siste sjanse / knockout'}
-          </button>
-        )}
+        <button
+          onClick={() => startPhase('LAST_CHANCE')}
+          disabled={!canStartLastChance || startingLastChance || startingKnockout}
+          className="ml-3 mt-5 rounded-lg bg-amber-500 px-6 py-2 font-bold text-slate-950 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Start siste sjanse
+        </button>
+        <button
+          onClick={() => startPhase('KNOCKOUT')}
+          disabled={!canStartPlayoff || startingLastChance || startingKnockout}
+          className="ml-3 mt-5 rounded-lg bg-yellow-300 px-6 py-2 font-bold text-slate-950 hover:bg-yellow-200 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Start sluttspill
+        </button>
         {knockoutMessage && (
           <p className="mt-3 text-sm text-emerald-300">{knockoutMessage}</p>
         )}

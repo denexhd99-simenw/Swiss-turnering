@@ -82,7 +82,15 @@ async function createLastChanceRound(
   })
 }
 
-export async function POST() {
+export async function POST(req: Request) {
+  let body: any = {}
+  try {
+    body = await req.json()
+  } catch {
+    body = {}
+  }
+  const intent = body?.intent === 'LAST_CHANCE' || body?.intent === 'KNOCKOUT' ? body.intent : 'AUTO'
+
   const openSwissMatches = await prisma.match.count({
     where: {
       phase: SWISS_PHASE,
@@ -115,6 +123,10 @@ export async function POST() {
   })
 
   if (lastChanceMatches.length > 0) {
+    if (intent === 'LAST_CHANCE') {
+      return new Response('Last chance has already been created', { status: 400 })
+    }
+
     const openLastChance = lastChanceMatches.filter((m: any) => m.winnerId === null && m.player2Id !== null)
     if (openLastChance.length > 0) {
       return new Response('Last chance matches are not finished yet', { status: 400 })
@@ -155,6 +167,10 @@ export async function POST() {
   const extraSlotsNeeded = targetSize - qualified.length
 
   if (extraSlotsNeeded === 0) {
+    if (intent === 'LAST_CHANCE') {
+      return new Response('Last chance is not needed for this bracket size', { status: 400 })
+    }
+
     await createKnockoutRoundOne(qualified)
 
     return Response.json({
@@ -167,6 +183,10 @@ export async function POST() {
   const candidates = sortSeeds(allPlayers.filter((p) => p.wins < 3))
   if (candidates.length < extraSlotsNeeded) {
     return new Response('Not enough players to fill the knockout bracket', { status: 400 })
+  }
+
+  if (intent === 'KNOCKOUT') {
+    return new Response('Start siste sjanse først for å fylle bracketen', { status: 400 })
   }
 
   const cutoffWins = candidates[extraSlotsNeeded - 1].wins

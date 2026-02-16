@@ -31,7 +31,10 @@ export default function LeaderboardPage() {
 
   useEffect(() => {
     load()
-    const interval = setInterval(load, 5000) // 🔄 Auto refresh
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+      load()
+    }, 30000)
     return () => clearInterval(interval)
   }, [])
 
