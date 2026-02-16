@@ -51,6 +51,37 @@ async function createKnockoutRoundOne(participants: PlayerSeed[]) {
   })
 }
 
+async function createLastChanceRound(
+  autoQualified: PlayerSeed[],
+  contenders: PlayerSeed[]
+) {
+  await prisma.$transaction(async (tx: any) => {
+    for (const player of autoQualified) {
+      await tx.match.create({
+        data: {
+          phase: LAST_CHANCE_PHASE,
+          round: 1,
+          player1Id: player.id,
+          player2Id: null,
+          winnerId: player.id
+        }
+      })
+    }
+
+    for (let i = 0; i < contenders.length; i += 2) {
+      await tx.match.create({
+        data: {
+          phase: LAST_CHANCE_PHASE,
+          round: 1,
+          player1Id: contenders[i].id,
+          player2Id: contenders[i + 1].id,
+          winnerId: null
+        }
+      })
+    }
+  })
+}
+
 export async function POST() {
   const openSwissMatches = await prisma.match.count({
     where: {
@@ -134,32 +165,54 @@ export async function POST() {
   }
 
   const candidates = sortSeeds(allPlayers.filter((p) => p.wins < 3))
-  const requiredCandidates = extraSlotsNeeded * 2
-
-  if (candidates.length < requiredCandidates) {
-    return new Response('Not enough players to run last chance for a valid knockout size', { status: 400 })
+  if (candidates.length < extraSlotsNeeded) {
+    return new Response('Not enough players to fill the knockout bracket', { status: 400 })
   }
 
-  const selected = candidates.slice(0, requiredCandidates)
+  const cutoffWins = candidates[extraSlotsNeeded - 1].wins
+  const autoQualified = candidates.filter((p) => p.wins > cutoffWins)
+  let remainingSlots = extraSlotsNeeded - autoQualified.length
+  let sameWinsPool = candidates.filter((p) => p.wins === cutoffWins)
 
-  await prisma.$transaction(async (tx: any) => {
-    for (let i = 0; i < selected.length; i += 2) {
-      await tx.match.create({
-        data: {
-          phase: LAST_CHANCE_PHASE,
-          round: 1,
-          player1Id: selected[i].id,
-          player2Id: selected[i + 1].id,
-          winnerId: null
-        }
-      })
-    }
-  })
+  if (remainingSlots <= 0) {
+    const participants = [
+      ...qualified,
+      ...autoQualified.slice(0, extraSlotsNeeded)
+    ]
+    await createKnockoutRoundOne(participants)
+    return Response.json({
+      success: true,
+      phase: KNOCKOUT_PHASE,
+      participants: participants.length
+    })
+  }
+
+  if (sameWinsPool.length < remainingSlots) {
+    return new Response('Not enough candidates in cutoff group to fill knockout slots', { status: 400 })
+  }
+
+  if (sameWinsPool.length === remainingSlots) {
+    const participants = [...qualified, ...autoQualified, ...sameWinsPool]
+    await createKnockoutRoundOne(participants)
+    return Response.json({
+      success: true,
+      phase: KNOCKOUT_PHASE,
+      participants: participants.length
+    })
+  }
+
+  const contendersNeeded = remainingSlots * 2
+  if (sameWinsPool.length < contendersNeeded) {
+    return new Response('Need at least two contenders per remaining slot in last chance', { status: 400 })
+  }
+
+  sameWinsPool = sameWinsPool.slice(0, contendersNeeded)
+  await createLastChanceRound(autoQualified, sameWinsPool)
 
   return Response.json({
     success: true,
     phase: LAST_CHANCE_PHASE,
     message: 'Last chance round created. Complete these matches before starting knockout.',
-    neededWinners: extraSlotsNeeded
+    neededWinners: remainingSlots
   })
 }

@@ -80,12 +80,19 @@ export default function AdminPage() {
     setKnockoutError('')
 
     const res = await fetch('/api/knockout/start', { method: 'POST' })
-    const maybeJson = await res.json().catch(() => null)
+    const raw = await res.text()
+    let maybeJson: any = null
+    try {
+      maybeJson = raw ? JSON.parse(raw) : null
+    } catch {
+      maybeJson = null
+    }
 
     if (!res.ok) {
       setKnockoutError(
         maybeJson?.error ??
           maybeJson?.message ??
+          raw ??
           'Kunne ikkje starte siste sjanse / knockout.'
       )
       setStartingKnockout(false)
