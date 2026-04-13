@@ -57,26 +57,29 @@ export default function HomePage() {
 
   return (
     <div className="space-y-8">
-      <div className="rounded-2xl border border-cyan-500/30 bg-slate-950/60 p-4">
-        <label className="mb-2 block text-sm font-semibold text-cyan-300">Marker spelar</label>
-        <select
-          value={selectedPlayerId ?? ''}
-          onChange={(e) => setSelectedPlayerId(e.target.value ? Number(e.target.value) : null)}
-          className="w-full rounded-lg border border-cyan-500/40 bg-[#07162f] px-4 py-2 text-white md:w-[340px]"
-        >
-          <option value="">Vis alle</option>
-          {players.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-      </div>
-
       <SwissBoard players={players} matches={matches} selectedPlayerId={selectedPlayerId} />
 
       <div className="rounded-2xl border border-cyan-500/30 bg-slate-950/70 p-6">
-        <h2 className="mb-4 text-xl font-black tracking-wide text-cyan-200">Kampar</h2>
+        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <h2 className="text-xl font-black tracking-wide text-cyan-200">Kamper</h2>
+          <div className="w-full md:w-[260px]">
+            <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-cyan-300">
+              Marker spelar
+            </label>
+            <select
+              value={selectedPlayerId ?? ''}
+              onChange={(e) => setSelectedPlayerId(e.target.value ? Number(e.target.value) : null)}
+              className="w-full rounded-lg border border-cyan-500/40 bg-[#07162f] px-4 py-2 text-sm text-white"
+            >
+              <option value="">Vis alle</option>
+              {players.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {filteredMatches.map((match) => (
             <div key={match.id} className="rounded-xl border border-slate-700 bg-[#081326] p-4">
@@ -92,7 +95,7 @@ export default function HomePage() {
           ))}
           {filteredMatches.length === 0 && (
             <div className="rounded-xl border border-dashed border-slate-700 p-5 text-sm text-slate-400">
-              Ingen kampar for dette filteret.
+              Her kjem alle kampene når turneringa starter
             </div>
           )}
         </div>
