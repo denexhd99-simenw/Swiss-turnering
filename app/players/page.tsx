@@ -77,11 +77,11 @@ export default function PlayersPage() {
       <div className="mx-auto max-w-5xl space-y-10 px-6">
         <div>
           <h1 className="text-4xl font-bold tracking-tight">Bordtennis-turnering</h1>
-          <p className="mt-2 text-slate-400">Intern raadhus-konkurranse</p>
+          <p className="mt-2 text-slate-400">Intern rådhus-konkurranse</p>
         </div>
 
         <div className="rounded-2xl border border-slate-700 bg-slate-800/70 p-6 shadow-xl backdrop-blur">
-          <h2 className="mb-4 text-2xl font-semibold">Meld deg paa</h2>
+          <h2 className="mb-4 text-2xl font-semibold">Meld deg på her</h2>
 
           <form onSubmit={submit} className="space-y-4">
             <input
