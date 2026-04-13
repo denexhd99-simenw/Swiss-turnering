@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 
 const KNOCKOUT_PHASE = 'KNOCKOUT'
+const POINTS_PER_WIN = 3
 
 async function createNextKnockoutRoundIfReady() {
   const knockoutMatches = await prisma.match.findMany({
@@ -46,7 +47,8 @@ async function createNextKnockoutRoundIfReady() {
         await tx.player.update({
           where: { id: player1Id },
           data: {
-            wins: { increment: 1 }
+            wins: { increment: 1 },
+            points: { increment: POINTS_PER_WIN }
           }
         })
       }
@@ -91,7 +93,8 @@ export async function PATCH(
       await tx.player.update({
         where: { id: previousWinner },
         data: {
-          wins: { decrement: 1 }
+          wins: { decrement: 1 },
+          points: { decrement: POINTS_PER_WIN }
         }
       })
       await tx.player.update({
@@ -105,7 +108,8 @@ export async function PATCH(
     await tx.player.update({
       where: { id: winner },
       data: {
-        wins: { increment: 1 }
+        wins: { increment: 1 },
+        points: { increment: POINTS_PER_WIN }
       }
     })
     await tx.player.update({

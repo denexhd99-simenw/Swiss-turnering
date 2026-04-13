@@ -42,6 +42,7 @@ export default function AdminPage() {
   const [departmentReassignments, setDepartmentReassignments] = useState<Record<number, number | ''>>({})
   const [savingMatchId, setSavingMatchId] = useState<number | null>(null)
   const [startingTournament, setStartingTournament] = useState(false)
+  const [clearingTournament, setClearingTournament] = useState(false)
   const [statusMessage, setStatusMessage] = useState('')
   const [statusError, setStatusError] = useState('')
   const [selectedPlayerId, setSelectedPlayerId] = useState<number | null>(null)
@@ -169,6 +170,32 @@ export default function AdminPage() {
     setStartingTournament(false)
   }
 
+  async function clearTournament() {
+    setClearingTournament(true)
+    setStatusMessage('')
+    setStatusError('')
+
+    const res = await fetch('/api/tournament/reset', { method: 'POST' })
+    const raw = await res.text()
+    let payload: any = null
+
+    try {
+      payload = raw ? JSON.parse(raw) : null
+    } catch {
+      payload = null
+    }
+
+    if (!res.ok) {
+      setStatusError(payload?.error ?? payload?.message ?? raw ?? 'Kunne ikkje rydde turneringa.')
+      setClearingTournament(false)
+      return
+    }
+
+    setStatusMessage(payload?.message ?? 'Tidlegare turnering er fjerna.')
+    await load()
+    setClearingTournament(false)
+  }
+
   async function setWinner(matchId: number, winnerId: number) {
     setSavingMatchId(matchId)
 
@@ -258,10 +285,17 @@ export default function AdminPage() {
         </p>
         <button
           onClick={startTournament}
-          disabled={startingTournament}
+          disabled={startingTournament || clearingTournament}
           className="mt-5 rounded-lg bg-emerald-600 px-6 py-2 font-bold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {knockoutStarted ? 'Start turnering paanytt' : 'Start turnering'}
+        </button>
+        <button
+          onClick={clearTournament}
+          disabled={startingTournament || clearingTournament}
+          className="ml-3 mt-5 rounded-lg bg-rose-600 px-6 py-2 font-bold text-white hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Fjern tidlegare turnering
         </button>
         {statusMessage && <p className="mt-3 text-sm text-emerald-300">{statusMessage}</p>}
         {statusError && <p className="mt-3 text-sm text-rose-300">{statusError}</p>}

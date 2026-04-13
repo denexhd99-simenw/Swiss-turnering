@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 
 const KNOCKOUT_PHASE = 'KNOCKOUT'
+const POINTS_PER_WIN = 3
 
 type KnockoutPlayer = {
   id: number
@@ -56,7 +57,8 @@ export async function POST() {
         await tx.player.update({
           where: { id: player1.id },
           data: {
-            wins: { increment: 1 }
+            wins: { increment: 1 },
+            points: { increment: POINTS_PER_WIN }
           }
         })
       }
