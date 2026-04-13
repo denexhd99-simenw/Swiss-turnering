@@ -15,7 +15,7 @@ export default function RootLayout({
             <div className="mx-auto flex max-w-[83rem] items-center justify-between px-6 py-4">
               <div className="flex items-center gap-3 text-xl font-bold">
                 <Trophy className="text-blue-500" />
-                Oversikt over Rådhusets råeste bordtenniskonkurranse
+                Oversikt over Rådhusets råaste bordtenniskonkurranse
               </div>
 
               <div className="flex gap-6 text-slate-300">
