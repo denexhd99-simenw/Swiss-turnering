@@ -22,20 +22,13 @@ export default function LeaderboardPage() {
   const [selectedDepartment, setSelectedDepartment] = useState<string>('all')
 
   async function load() {
-    const playersData = await fetch('/api/players').then(r => r.json())
-    const deptData = await fetch('/api/departments').then(r => r.json())
-
-    setPlayers(playersData)
-    setDepartments(deptData)
+    const data = await fetch('/api/overview').then(r => r.json())
+    setPlayers(data.players)
+    setDepartments(data.departments)
   }
 
   useEffect(() => {
     load()
-    const interval = setInterval(() => {
-      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
-      load()
-    }, 30000)
-    return () => clearInterval(interval)
   }, [])
 
   const filteredPlayers =

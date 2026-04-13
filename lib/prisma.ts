@@ -28,6 +28,15 @@ type AnyObject = Record<string, any>
 
 const META_COLLECTION = '__meta'
 const COUNTERS_DOC = 'counters'
+const COLLECTION_CACHE_TTL_MS = 15000
+
+const collectionCache = new Map<
+  string,
+  {
+    expiresAt: number
+    rows: AnyObject[]
+  }
+>()
 
 async function nextId(counterKey: string) {
   const ref = db.collection(META_COLLECTION).doc(COUNTERS_DOC)
@@ -40,6 +49,27 @@ async function nextId(counterKey: string) {
     tx.set(ref, { [counterKey]: next }, { merge: true })
     return next
   })
+}
+
+function getCollectionCache(collection: string) {
+  const cached = collectionCache.get(collection)
+  if (!cached) return null
+  if (cached.expiresAt <= Date.now()) {
+    collectionCache.delete(collection)
+    return null
+  }
+  return cached.rows
+}
+
+function setCollectionCache(collection: string, rows: AnyObject[]) {
+  collectionCache.set(collection, {
+    expiresAt: Date.now() + COLLECTION_CACHE_TTL_MS,
+    rows: rows.map((row) => ({ ...row }))
+  })
+}
+
+function invalidateCollectionCache(collection: string) {
+  collectionCache.delete(collection)
 }
 
 function normalizeOrderBy(orderBy?: AnyObject | AnyObject[]) {
@@ -133,6 +163,15 @@ function applyUpdate<T extends AnyObject>(item: T, data: AnyObject): T {
 }
 
 async function fetchDocs(collection: string, args: AnyObject = {}) {
+  const cachedRows = getCollectionCache(collection)
+  if (cachedRows) {
+    let rows = cachedRows.map((row) => ({ ...row }))
+    rows = applyWhereInMemory(rows, args.where)
+    rows = applyOrderByInMemory(rows, args.orderBy)
+    if (typeof args.take === 'number') rows = rows.slice(0, args.take)
+    return rows
+  }
+
   let query: any = db.collection(collection)
   let inequalityField: string | null = null
 
@@ -191,10 +230,33 @@ async function fetchDocs(collection: string, args: AnyObject = {}) {
 
   try {
     const snapshot = await query.get()
-    return snapshot.docs.map((doc: any) => doc.data())
+    const rows = snapshot.docs.map((doc: any) => {
+      const data = doc.data() ?? {}
+      if (data.id === undefined || data.id === null) {
+        const numericId = Number(doc.id)
+        if (Number.isInteger(numericId)) {
+          return { ...data, id: numericId }
+        }
+      }
+      return data
+    })
+    if (!args.where && typeof args.take !== 'number') {
+      setCollectionCache(collection, rows)
+    }
+    return rows
   } catch {
     const fallback = await db.collection(collection).get()
-    let rows = fallback.docs.map((doc: any) => doc.data())
+    let rows = fallback.docs.map((doc: any) => {
+      const data = doc.data() ?? {}
+      if (data.id === undefined || data.id === null) {
+        const numericId = Number(doc.id)
+        if (Number.isInteger(numericId)) {
+          return { ...data, id: numericId }
+        }
+      }
+      return data
+    })
+    setCollectionCache(collection, rows)
     rows = applyWhereInMemory(rows, args.where)
     rows = applyOrderByInMemory(rows, args.orderBy)
     if (typeof args.take === 'number') rows = rows.slice(0, args.take)
@@ -273,12 +335,14 @@ const player = {
       departmentId: Number(data.departmentId)
     }
     await db.collection('players').doc(String(id)).set(item)
+    invalidateCollectionCache('players')
     return item
   },
 
   async delete(args: AnyObject) {
     const id = Number(args.where?.id)
     await db.collection('players').doc(String(id)).delete()
+    invalidateCollectionCache('players')
     return { id }
   },
 
@@ -291,6 +355,7 @@ const player = {
     const current = snap.data() as Player
     const updated = applyUpdate(current, args.data ?? {})
     await ref.set(updated)
+    invalidateCollectionCache('players')
     return updated
   },
 
@@ -303,6 +368,8 @@ const player = {
       await db.collection('players').doc(String(p.id)).set(updated)
       count += 1
     }
+
+    if (count > 0) invalidateCollectionCache('players')
 
     return { count }
   }
@@ -329,12 +396,14 @@ const department = {
       name: args.data?.name
     }
     await db.collection('departments').doc(String(id)).set(item)
+    invalidateCollectionCache('departments')
     return item
   },
 
   async delete(args: AnyObject) {
     const id = Number(args.where?.id)
     await db.collection('departments').doc(String(id)).delete()
+    invalidateCollectionCache('departments')
     return { id }
   }
 }
@@ -426,6 +495,7 @@ const match = {
     }
 
     await db.collection('matches').doc(String(id)).set(item)
+    invalidateCollectionCache('matches')
     return item
   },
 
@@ -448,12 +518,14 @@ const match = {
     const current = snap.data() as Match
     const updated = applyUpdate(current, args.data ?? {})
     await ref.set(updated)
+    invalidateCollectionCache('matches')
     return updated
   },
 
   async delete(args: AnyObject) {
     const id = Number(args.where?.id)
     await db.collection('matches').doc(String(id)).delete()
+    invalidateCollectionCache('matches')
     return { id }
   },
 
@@ -465,6 +537,8 @@ const match = {
       await db.collection('matches').doc(String(m.id)).delete()
       count += 1
     }
+
+    if (count > 0) invalidateCollectionCache('matches')
 
     return { count }
   }

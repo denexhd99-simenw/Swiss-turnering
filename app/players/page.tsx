@@ -25,13 +25,9 @@ export default function PlayersPage() {
   const [message, setMessage] = useState('')
 
   async function loadData() {
-    const [playersRes, departmentsRes] = await Promise.all([
-      fetch('/api/players'),
-      fetch('/api/departments')
-    ])
-
-    setPlayers(await playersRes.json())
-    setDepartments(await departmentsRes.json())
+    const data = await fetch('/api/overview').then((r) => r.json())
+    setPlayers(data.players)
+    setDepartments(data.departments)
   }
 
   useEffect(() => {

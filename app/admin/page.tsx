@@ -48,24 +48,15 @@ export default function AdminPage() {
   const [selectedPlayerId, setSelectedPlayerId] = useState<number | null>(null)
 
   async function load() {
-    const [playersData, matchesData, departmentsData] = await Promise.all([
-      fetch('/api/players').then((r) => r.json()),
-      fetch('/api/matches').then((r) => r.json()),
-      fetch('/api/departments').then((r) => r.json())
-    ])
-    setPlayers(playersData)
-    setMatches(matchesData)
-    setDepartments(departmentsData)
+    const data = await fetch('/api/overview').then((r) => r.json())
+    setPlayers(data.players)
+    setMatches(data.matches)
+    setDepartments(data.departments)
   }
 
   useEffect(() => {
     if (!authenticated) return
     load()
-    const timer = setInterval(() => {
-      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
-      load()
-    }, 15000)
-    return () => clearInterval(timer)
   }, [authenticated])
 
   async function createDepartment() {

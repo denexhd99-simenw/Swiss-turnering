@@ -31,21 +31,13 @@ export default function HomePage() {
   const [selectedPlayerId, setSelectedPlayerId] = useState<number | null>(null)
 
   async function load() {
-    const [p, m] = await Promise.all([
-      fetch('/api/players').then((r) => r.json()),
-      fetch('/api/matches').then((r) => r.json())
-    ])
-    setPlayers(p)
-    setMatches(m)
+    const data = await fetch('/api/overview').then((r) => r.json())
+    setPlayers(data.players)
+    setMatches(data.matches)
   }
 
   useEffect(() => {
     load()
-    const timer = setInterval(() => {
-      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
-      load()
-    }, 20000)
-    return () => clearInterval(timer)
   }, [])
 
   const filteredMatches = useMemo(() => {
