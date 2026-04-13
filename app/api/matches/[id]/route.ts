@@ -1,145 +1,6 @@
 import { prisma } from '@/lib/prisma'
-import { buildOpponentMap, buildPairsByPriority, shuffle } from '@/lib/swiss-pairing'
 
-const SWISS_PHASE = 'SWISS'
 const KNOCKOUT_PHASE = 'KNOCKOUT'
-const POINTS_PER_WIN = 3
-const ADVANCE_WINS = 3
-const ELIMINATION_LOSSES = 3
-
-type SwissPlayer = {
-  id: number
-  wins: number
-  losses: number
-  departmentId: number
-}
-
-function groupKey(player: SwissPlayer) {
-  return `${player.wins}-${player.losses}`
-}
-
-function sortedGroupKeys(players: SwissPlayer[]) {
-  const keys = new Set(players.map(groupKey))
-  return Array.from(keys).sort((a, b) => {
-    const [aw, al] = a.split('-').map(Number)
-    const [bw, bl] = b.split('-').map(Number)
-    if (bw !== aw) return bw - aw
-    return al - bl
-  })
-}
-
-async function createNextSwissRoundIfReady() {
-  const openSwiss = await prisma.match.count({
-    where: {
-      phase: SWISS_PHASE,
-      player2Id: { not: null },
-      winnerId: null
-    }
-  })
-
-  if (openSwiss > 0) return
-
-  const activePlayers = await prisma.player.findMany({
-    where: {
-      wins: { lt: ADVANCE_WINS },
-      losses: { lt: ELIMINATION_LOSSES }
-    },
-    select: {
-      id: true,
-      wins: true,
-      losses: true,
-      departmentId: true
-    },
-    orderBy: [
-      { wins: 'desc' },
-      { losses: 'asc' },
-      { id: 'asc' }
-    ]
-  })
-
-  if (activePlayers.length < 2) return
-
-  const lastRound = await prisma.match.aggregate({
-    where: { phase: SWISS_PHASE },
-    _max: { round: true }
-  })
-  const nextRound = (lastRound._max.round ?? 0) + 1
-
-  const existingNextRound = await prisma.match.count({
-    where: {
-      phase: SWISS_PHASE,
-      round: nextRound
-    }
-  })
-
-  if (existingNextRound > 0) return
-
-  const playedMatches = await prisma.match.findMany({
-    where: {
-      phase: SWISS_PHASE,
-      player1Id: { not: null },
-      player2Id: { not: null }
-    },
-    select: {
-      player1Id: true,
-      player2Id: true
-    }
-  })
-  const opponents = buildOpponentMap(playedMatches)
-
-  const grouped: Record<string, SwissPlayer[]> = {}
-  for (const player of activePlayers) {
-    const key = groupKey(player)
-    if (!grouped[key]) grouped[key] = []
-    grouped[key].push(player)
-  }
-
-  const keys = sortedGroupKeys(activePlayers)
-  const pairings: Array<{ player1Id: number; player2Id: number | null }> = []
-  let carry: SwissPlayer | null = null
-
-  for (const key of keys) {
-    const group = shuffle(grouped[key])
-    if (carry) group.unshift(carry)
-
-    const groupedPairs = buildPairsByPriority(group, opponents)
-    carry = groupedPairs.carry
-    pairings.push(...groupedPairs.pairs)
-  }
-
-  await prisma.$transaction(async (tx) => {
-    for (const pairing of pairings) {
-      await tx.match.create({
-        data: {
-          phase: SWISS_PHASE,
-          round: nextRound,
-          player1Id: pairing.player1Id,
-          player2Id: pairing.player2Id
-        }
-      })
-    }
-
-    if (carry) {
-      await tx.match.create({
-        data: {
-          phase: SWISS_PHASE,
-          round: nextRound,
-          player1Id: carry.id,
-          player2Id: null,
-          winnerId: carry.id
-        }
-      })
-
-      await tx.player.update({
-        where: { id: carry.id },
-        data: {
-          wins: { increment: 1 },
-          points: { increment: POINTS_PER_WIN }
-        }
-      })
-    }
-  })
-}
 
 async function createNextKnockoutRoundIfReady() {
   const knockoutMatches = await prisma.match.findMany({
@@ -149,19 +10,20 @@ async function createNextKnockoutRoundIfReady() {
 
   if (knockoutMatches.length === 0) return
 
-  const currentRound = Math.max(...knockoutMatches.map((m) => m.round))
-  const currentRoundMatches = knockoutMatches.filter((m) => m.round === currentRound)
-  const hasOpenMatches = currentRoundMatches.some((m) => m.player2Id !== null && m.winnerId === null)
+  const currentRound = Math.max(...knockoutMatches.map((match) => match.round))
+  const currentRoundMatches = knockoutMatches.filter((match) => match.round === currentRound)
+  const hasOpenMatches = currentRoundMatches.some(
+    (match) => match.player2Id !== null && match.winnerId === null
+  )
 
   if (hasOpenMatches) return
 
   const nextRound = currentRound + 1
-  const nextRoundExists = knockoutMatches.some((m) => m.round === nextRound)
-  if (nextRoundExists) return
+  if (knockoutMatches.some((match) => match.round === nextRound)) return
 
   const winners = currentRoundMatches
-    .map((m) => m.winnerId ?? (m.player2Id === null ? m.player1Id : null))
-    .filter((id): id is number => id !== null)
+    .map((match) => match.winnerId ?? (match.player2Id === null ? match.player1Id : null))
+    .filter((playerId): playerId is number => playerId !== null)
 
   if (winners.length <= 1) return
 
@@ -179,6 +41,15 @@ async function createNextKnockoutRoundIfReady() {
           winnerId: player2Id === null ? player1Id : null
         }
       })
+
+      if (player2Id === null) {
+        await tx.player.update({
+          where: { id: player1Id },
+          data: {
+            wins: { increment: 1 }
+          }
+        })
+      }
     }
   })
 }
@@ -207,58 +78,51 @@ export async function PATCH(
     return new Response('Winner must be one of the players in the match', { status: 400 })
   }
 
-  if (match.phase === SWISS_PHASE) {
-    const loser = winner === match.player1Id ? match.player2Id : match.player1Id
-    const previousWinner = match.winnerId
-    const previousLoser = previousWinner
-      ? previousWinner === match.player1Id
-        ? match.player2Id
-        : match.player1Id
-      : null
+  const loser = winner === match.player1Id ? match.player2Id : match.player1Id
+  const previousWinner = match.winnerId
+  const previousLoser = previousWinner
+    ? previousWinner === match.player1Id
+      ? match.player2Id
+      : match.player1Id
+    : null
 
-    await prisma.$transaction(async (tx) => {
-      if (previousWinner && previousLoser) {
-        await tx.player.update({
-          where: { id: previousWinner },
-          data: {
-            points: { decrement: POINTS_PER_WIN },
-            wins: { decrement: 1 }
-          }
-        })
-        await tx.player.update({
-          where: { id: previousLoser },
-          data: { losses: { decrement: 1 } }
-        })
-      }
-
+  await prisma.$transaction(async (tx) => {
+    if (previousWinner && previousLoser) {
       await tx.player.update({
-        where: { id: winner },
+        where: { id: previousWinner },
         data: {
-          points: { increment: POINTS_PER_WIN },
-          wins: { increment: 1 }
+          wins: { decrement: 1 }
         }
       })
       await tx.player.update({
-        where: { id: loser },
-        data: { losses: { increment: 1 } }
+        where: { id: previousLoser },
+        data: {
+          losses: { decrement: 1 }
+        }
       })
+    }
 
-      await tx.match.update({
-        where: { id: matchId },
-        data: { winnerId: winner }
-      })
+    await tx.player.update({
+      where: { id: winner },
+      data: {
+        wins: { increment: 1 }
+      }
+    })
+    await tx.player.update({
+      where: { id: loser },
+      data: {
+        losses: { increment: 1 }
+      }
     })
 
-    await createNextSwissRoundIfReady()
-  } else {
-    await prisma.match.update({
+    await tx.match.update({
       where: { id: matchId },
       data: { winnerId: winner }
     })
+  })
 
-    if (match.phase === KNOCKOUT_PHASE) {
-      await createNextKnockoutRoundIfReady()
-    }
+  if (match.phase === KNOCKOUT_PHASE) {
+    await createNextKnockoutRoundIfReady()
   }
 
   const updated = await prisma.match.findUnique({

@@ -20,7 +20,6 @@ type Match = {
   player2: { id: number; name: string } | null
 }
 
-const LAST_CHANCE_PHASE = 'LAST_CHANCE'
 const KNOCKOUT_PHASE = 'KNOCKOUT'
 
 export default function AdminPage() {
@@ -29,10 +28,9 @@ export default function AdminPage() {
   const [players, setPlayers] = useState<Player[]>([])
   const [matches, setMatches] = useState<Match[]>([])
   const [savingMatchId, setSavingMatchId] = useState<number | null>(null)
-  const [startingKnockout, setStartingKnockout] = useState(false)
-  const [startingLastChance, setStartingLastChance] = useState(false)
-  const [knockoutMessage, setKnockoutMessage] = useState('')
-  const [knockoutError, setKnockoutError] = useState('')
+  const [startingTournament, setStartingTournament] = useState(false)
+  const [statusMessage, setStatusMessage] = useState('')
+  const [statusError, setStatusError] = useState('')
   const [selectedPlayerId, setSelectedPlayerId] = useState<number | null>(null)
 
   async function load() {
@@ -54,19 +52,36 @@ export default function AdminPage() {
     return () => clearInterval(timer)
   }, [authenticated])
 
-  async function startSwiss() {
-    await fetch('/api/swiss/start', { method: 'POST' })
-    setKnockoutMessage('')
-    setKnockoutError('')
+  async function startTournament() {
+    setStartingTournament(true)
+    setStatusMessage('')
+    setStatusError('')
+
+    const res = await fetch('/api/swiss/start', { method: 'POST' })
+    const raw = await res.text()
+    let payload: any = null
+
+    try {
+      payload = raw ? JSON.parse(raw) : null
+    } catch {
+      payload = null
+    }
+
+    if (!res.ok) {
+      setStatusError(payload?.error ?? payload?.message ?? raw ?? 'Kunne ikkje starte turneringa.')
+      setStartingTournament(false)
+      return
+    }
+
+    setStatusMessage(payload?.message ?? 'Turneringa er starta.')
     await load()
+    setStartingTournament(false)
   }
 
   async function setWinner(matchId: number, winnerId: number) {
     setSavingMatchId(matchId)
 
-    setMatches((prev) =>
-      prev.map((m) => (m.id === matchId ? { ...m, winnerId } : m))
-    )
+    setMatches((prev) => prev.map((match) => (match.id === matchId ? { ...match, winnerId } : match)))
 
     await fetch(`/api/matches/${matchId}`, {
       method: 'PATCH',
@@ -78,111 +93,28 @@ export default function AdminPage() {
     setSavingMatchId(null)
   }
 
-  async function startPhase(intent: 'LAST_CHANCE' | 'KNOCKOUT') {
-    if (intent === 'LAST_CHANCE') setStartingLastChance(true)
-    if (intent === 'KNOCKOUT') setStartingKnockout(true)
-    setKnockoutMessage('')
-    setKnockoutError('')
-
-    const res = await fetch('/api/knockout/start', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ intent })
-    })
-    const raw = await res.text()
-    let maybeJson: any = null
-    try {
-      maybeJson = raw ? JSON.parse(raw) : null
-    } catch {
-      maybeJson = null
-    }
-
-    if (!res.ok) {
-      setKnockoutError(
-        maybeJson?.error ??
-          maybeJson?.message ??
-          raw ??
-          'Kunne ikkje starte siste sjanse / knockout.'
-      )
-      if (intent === 'LAST_CHANCE') setStartingLastChance(false)
-      if (intent === 'KNOCKOUT') setStartingKnockout(false)
-      return
-    }
-
-    setKnockoutMessage(
-      maybeJson?.phase === LAST_CHANCE_PHASE
-        ? 'Siste sjanse er starta. Registrer vinnarar der, og trykk knappen igjen.'
-        : 'Vinn-eller-forsvinn er starta.'
-    )
-    await load()
-    if (intent === 'LAST_CHANCE') setStartingLastChance(false)
-    if (intent === 'KNOCKOUT') setStartingKnockout(false)
-  }
-
   const knockoutStarted = useMemo(
-    () => matches.some((m) => m.phase === KNOCKOUT_PHASE),
+    () => matches.some((match) => match.phase === KNOCKOUT_PHASE),
     [matches]
   )
-
-  const lastChanceStarted = useMemo(
-    () => matches.some((m) => m.phase === LAST_CHANCE_PHASE),
-    [matches]
-  )
-
-  const swissOpenMatches = useMemo(
-    () => matches.filter((m) => m.phase === 'SWISS' && m.player2 && !m.winnerId),
-    [matches]
-  )
-
-  const canStartKnockout = useMemo(
-    () => !knockoutStarted && swissOpenMatches.length === 0,
-    [knockoutStarted, swissOpenMatches.length]
-  )
-
-  const bracketSizes = [4, 8, 16, 32]
-  const extraSlotsNeeded = useMemo(() => {
-    const qualifiedCount = players.filter((p) => p.wins >= 3).length
-    const target = bracketSizes.find((size) => size >= qualifiedCount && size <= players.length)
-    if (!target) return 0
-    return target - qualifiedCount
-  }, [players])
-
-  const openLastChanceMatches = useMemo(
-    () => matches.filter((m) => m.phase === LAST_CHANCE_PHASE && m.player2 && !m.winnerId),
-    [matches]
-  )
-
-  const canStartLastChance = canStartKnockout && !lastChanceStarted && extraSlotsNeeded > 0
-  const canStartPlayoff = canStartKnockout && (extraSlotsNeeded === 0 || (lastChanceStarted && openLastChanceMatches.length === 0))
 
   const activeMatches = useMemo(() => {
-    const openSwiss = matches.filter((m) => m.phase === 'SWISS' && m.player2 && !m.winnerId)
-    const openLastChance = matches.filter((m) => m.phase === LAST_CHANCE_PHASE && m.player2 && !m.winnerId)
-    const openKnockout = matches.filter((m) => m.phase === KNOCKOUT_PHASE && m.player2 && !m.winnerId)
-
-    const selected =
-      openSwiss.length > 0 ? openSwiss : openLastChance.length > 0 ? openLastChance : openKnockout
-    const rounds = selected.map((m) => m.round)
+    const openKnockout = matches.filter(
+      (match) => match.phase === KNOCKOUT_PHASE && match.player2 && !match.winnerId
+    )
+    const rounds = openKnockout.map((match) => match.round)
     const currentRound = rounds.length ? Math.min(...rounds) : null
 
     return {
       currentRound,
-      phase:
-        openSwiss.length > 0
-          ? 'SWISS'
-          : openLastChance.length > 0
-            ? LAST_CHANCE_PHASE
-            : openKnockout.length > 0
-              ? KNOCKOUT_PHASE
-              : null,
-      matches: currentRound ? selected.filter((m) => m.round === currentRound) : []
+      matches: currentRound ? openKnockout.filter((match) => match.round === currentRound) : []
     }
   }, [matches])
 
   const editableMatches = useMemo(
     () =>
       [...matches]
-        .filter((m) => !!m.player1 && !!m.player2)
+        .filter((match) => !!match.player1 && !!match.player2)
         .sort((a, b) => b.id - a.id)
         .slice(0, 30),
     [matches]
@@ -214,34 +146,19 @@ export default function AdminPage() {
   return (
     <div className="space-y-8">
       <div className="rounded-2xl border border-cyan-500/40 bg-gradient-to-r from-slate-950 via-[#0a2047] to-slate-950 p-6">
-        <h1 className="text-4xl font-black tracking-wide text-cyan-200">Admin Swiss Kontroll</h1>
-        <p className="mt-2 text-slate-300">Klikk direkte paa vinnaren i kvar kamp.</p>
+        <h1 className="text-4xl font-black tracking-wide text-cyan-200">Admin Knockout Kontroll</h1>
+        <p className="mt-2 text-slate-300">
+          Start ei rein vinn-eller-forsvinn-turnering og klikk direkte paa vinnaren i kvar kamp.
+        </p>
         <button
-          onClick={startSwiss}
-          className="mt-5 rounded-lg bg-emerald-600 px-6 py-2 font-bold text-white hover:bg-emerald-500"
+          onClick={startTournament}
+          disabled={startingTournament}
+          className="mt-5 rounded-lg bg-emerald-600 px-6 py-2 font-bold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          Start turnering
+          {knockoutStarted ? 'Start turnering paanytt' : 'Start turnering'}
         </button>
-        <button
-          onClick={() => startPhase('LAST_CHANCE')}
-          disabled={!canStartLastChance || startingLastChance || startingKnockout}
-          className="ml-3 mt-5 rounded-lg bg-amber-500 px-6 py-2 font-bold text-slate-950 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Start siste sjanse
-        </button>
-        <button
-          onClick={() => startPhase('KNOCKOUT')}
-          disabled={!canStartPlayoff || startingLastChance || startingKnockout}
-          className="ml-3 mt-5 rounded-lg bg-yellow-300 px-6 py-2 font-bold text-slate-950 hover:bg-yellow-200 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Start sluttspill
-        </button>
-        {knockoutMessage && (
-          <p className="mt-3 text-sm text-emerald-300">{knockoutMessage}</p>
-        )}
-        {knockoutError && (
-          <p className="mt-3 text-sm text-rose-300">{knockoutError}</p>
-        )}
+        {statusMessage && <p className="mt-3 text-sm text-emerald-300">{statusMessage}</p>}
+        {statusError && <p className="mt-3 text-sm text-rose-300">{statusError}</p>}
       </div>
 
       <div className="rounded-2xl border border-cyan-500/30 bg-slate-950/60 p-4">
@@ -252,9 +169,9 @@ export default function AdminPage() {
           className="w-full rounded-lg border border-cyan-500/40 bg-[#07162f] px-4 py-2 text-white md:w-[340px]"
         >
           <option value="">Vis alle</option>
-          {players.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
+          {players.map((player) => (
+            <option key={player.id} value={player.id}>
+              {player.name}
             </option>
           ))}
         </select>
@@ -266,14 +183,10 @@ export default function AdminPage() {
         <h2 className="mb-1 text-2xl font-black tracking-wide text-amber-300">Aktive kampar</h2>
         <p className="mb-5 text-slate-400">
           {activeMatches.currentRound
-            ? `${activeMatches.phase === 'SWISS'
-                ? 'Swiss'
-                : activeMatches.phase === LAST_CHANCE_PHASE
-                  ? 'Siste sjanse'
-                  : 'Knockout'} runde ${activeMatches.currentRound}`
+            ? `Knockout runde ${activeMatches.currentRound}`
             : knockoutStarted
-              ? 'Knockout ferdig, vinnar staar igjen.'
-              : 'Ingen opne kampar akkurat no'}
+              ? 'Knockout ferdig, vinnaren staar igjen.'
+              : 'Turneringa er ikkje starta enno.'}
         </p>
 
         <div className="grid gap-4 md:grid-cols-2">
@@ -310,7 +223,7 @@ export default function AdminPage() {
 
           {activeMatches.matches.length === 0 && (
             <div className="rounded-xl border border-dashed border-slate-700 p-5 text-sm text-slate-400">
-              Ventar paa neste runde eller turnering er ferdig.
+              Ventar paa neste runde eller at turneringa skal bli starta.
             </div>
           )}
         </div>
@@ -324,7 +237,7 @@ export default function AdminPage() {
           {editableMatches.map((match) => (
             <div key={match.id} className="rounded-xl border border-cyan-400/45 bg-[#0c1b33] p-4">
               <div className="mb-3 text-xs font-bold text-cyan-300">
-                Kamp #{match.id} • {match.phase} • Runde {match.round}
+                Kamp #{match.id} - {match.phase} - Runde {match.round}
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <button

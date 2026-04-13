@@ -21,7 +21,7 @@ type Match = {
 }
 
 function phaseLabel(match: Match) {
-  if (match.phase !== 'SWISS') return match.phase
+  if (match.phase === 'KNOCKOUT') return `Knockout runde ${match.round}`
   return `Runde ${match.round}`
 }
 
