@@ -31,12 +31,14 @@ export default function LeaderboardPage() {
     load()
   }, [])
 
-  const filteredPlayers =
-    selectedDepartment === 'all'
-      ? players
-      : players.filter(
-          p => p.department.id === Number(selectedDepartment)
-        )
+const filteredPlayers =
+  selectedDepartment === 'all'
+    ? players.filter(p => p.points > 0)
+    : players.filter(
+        p =>
+          p.department.id === Number(selectedDepartment) &&
+          p.points > 0
+      )
 
   const sortedPlayers = [...filteredPlayers].sort(
     (a, b) => b.points - a.points
