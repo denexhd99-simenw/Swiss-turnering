@@ -1,7 +1,14 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { Trash2 } from 'lucide-react'
+import { AnimatePresence, motion } from 'framer-motion'
 import SwissBoard from '../components/SwissBoard'
+
+type Department = {
+  id: number
+  name: string
+}
 
 type Player = {
   id: number
@@ -9,6 +16,7 @@ type Player = {
   points: number
   wins: number
   losses: number
+  department?: Department
 }
 
 type Match = {
@@ -27,6 +35,11 @@ export default function AdminPage() {
   const [password, setPassword] = useState('')
   const [players, setPlayers] = useState<Player[]>([])
   const [matches, setMatches] = useState<Match[]>([])
+  const [departments, setDepartments] = useState<Department[]>([])
+  const [newDepartment, setNewDepartment] = useState('')
+  const [departmentMessage, setDepartmentMessage] = useState('')
+  const [deleteDepartmentId, setDeleteDepartmentId] = useState<number | null>(null)
+  const [departmentReassignments, setDepartmentReassignments] = useState<Record<number, number | ''>>({})
   const [savingMatchId, setSavingMatchId] = useState<number | null>(null)
   const [startingTournament, setStartingTournament] = useState(false)
   const [statusMessage, setStatusMessage] = useState('')
@@ -34,12 +47,14 @@ export default function AdminPage() {
   const [selectedPlayerId, setSelectedPlayerId] = useState<number | null>(null)
 
   async function load() {
-    const [playersData, matchesData] = await Promise.all([
+    const [playersData, matchesData, departmentsData] = await Promise.all([
       fetch('/api/players').then((r) => r.json()),
-      fetch('/api/matches').then((r) => r.json())
+      fetch('/api/matches').then((r) => r.json()),
+      fetch('/api/departments').then((r) => r.json())
     ])
     setPlayers(playersData)
     setMatches(matchesData)
+    setDepartments(departmentsData)
   }
 
   useEffect(() => {
@@ -51,6 +66,82 @@ export default function AdminPage() {
     }, 15000)
     return () => clearInterval(timer)
   }, [authenticated])
+
+  async function createDepartment() {
+    if (!newDepartment.trim()) return
+
+    const res = await fetch('/api/departments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newDepartment.trim() })
+    })
+
+    if (!res.ok) {
+      setDepartmentMessage('Kunne ikkje opprette avdeling.')
+      return
+    }
+
+    setNewDepartment('')
+    setDepartmentMessage('')
+    await load()
+  }
+
+  function openDeleteDepartmentModal(id: number) {
+    setDepartmentMessage('')
+    setDeleteDepartmentId(id)
+
+    const affectedPlayers = players.filter((player) => player.department?.id === id)
+    const alternatives = departments.filter((department) => department.id !== id)
+    const initial: Record<number, number | ''> = {}
+
+    for (const player of affectedPlayers) {
+      initial[player.id] = alternatives[0]?.id ?? ''
+    }
+
+    setDepartmentReassignments(initial)
+  }
+
+  async function confirmDeleteDepartment() {
+    if (!deleteDepartmentId) return
+
+    const affectedPlayers = players.filter((player) => player.department?.id === deleteDepartmentId)
+    const alternatives = departments.filter((department) => department.id !== deleteDepartmentId)
+
+    if (affectedPlayers.length > 0 && alternatives.length === 0) {
+      setDepartmentMessage('Du maa ha minst ei anna avdeling for aa flytte spelarane.')
+      return
+    }
+
+    const reassignments = affectedPlayers.map((player) => ({
+      playerId: player.id,
+      departmentId: Number(departmentReassignments[player.id])
+    }))
+
+    if (affectedPlayers.length > 0 && reassignments.some((item) => !Number.isInteger(item.departmentId))) {
+      setDepartmentMessage('Vel ny avdeling for alle spelarane.')
+      return
+    }
+
+    const res = await fetch('/api/departments', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        departmentId: deleteDepartmentId,
+        reassignments
+      })
+    })
+
+    if (!res.ok) {
+      const maybeJson = await res.json().catch(() => null)
+      setDepartmentMessage(maybeJson?.error ?? 'Kunne ikkje slette avdeling.')
+      return
+    }
+
+    setDeleteDepartmentId(null)
+    setDepartmentReassignments({})
+    setDepartmentMessage('')
+    await load()
+  }
 
   async function startTournament() {
     setStartingTournament(true)
@@ -120,6 +211,21 @@ export default function AdminPage() {
     [matches]
   )
 
+  const departmentToDelete = useMemo(
+    () => departments.find((department) => department.id === deleteDepartmentId) ?? null,
+    [deleteDepartmentId, departments]
+  )
+
+  const affectedPlayers = useMemo(
+    () => players.filter((player) => player.department?.id === deleteDepartmentId),
+    [players, deleteDepartmentId]
+  )
+
+  const availableDepartments = useMemo(
+    () => departments.filter((department) => department.id !== deleteDepartmentId),
+    [departments, deleteDepartmentId]
+  )
+
   if (!authenticated) {
     return (
       <div className="flex min-h-[70vh] items-center justify-center">
@@ -159,6 +265,54 @@ export default function AdminPage() {
         </button>
         {statusMessage && <p className="mt-3 text-sm text-emerald-300">{statusMessage}</p>}
         {statusError && <p className="mt-3 text-sm text-rose-300">{statusError}</p>}
+      </div>
+
+      <div className="rounded-2xl border border-cyan-500/35 bg-slate-950/75 p-6">
+        <h2 className="mb-1 text-2xl font-black tracking-wide text-cyan-200">Avdelingar</h2>
+        <p className="mb-5 text-slate-400">Berre admin kan opprette og slette avdelingar.</p>
+
+        <div className="flex gap-3">
+          <input
+            value={newDepartment}
+            onChange={(e) => setNewDepartment(e.target.value)}
+            placeholder="Skriv namn paa avdeling"
+            className="flex-1 rounded-xl border border-slate-600 bg-slate-900 px-4 py-3 text-lg focus:outline-none focus:ring-2 focus:ring-cyan-500"
+          />
+          <button
+            onClick={createDepartment}
+            className="rounded-xl bg-cyan-600 px-5 py-3 font-medium transition hover:bg-cyan-500"
+          >
+            Legg til
+          </button>
+        </div>
+
+        {departmentMessage && !deleteDepartmentId && (
+          <p className="mt-3 text-sm text-rose-300">{departmentMessage}</p>
+        )}
+
+        <div className="mt-6 space-y-2">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Avdelingar</h3>
+          {departments.map((department) => (
+            <div
+              key={department.id}
+              className="flex items-center justify-between rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2"
+            >
+              <span>{department.name}</span>
+              <button
+                onClick={() => openDeleteDepartmentModal(department.id)}
+                className="text-red-500 transition hover:text-red-400"
+                title="Slett avdeling"
+              >
+                <Trash2 size={18} />
+              </button>
+            </div>
+          ))}
+          {departments.length === 0 && (
+            <div className="rounded-lg border border-dashed border-slate-700 px-3 py-4 text-sm text-slate-400">
+              Ingen avdelingar oppretta enno.
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="rounded-2xl border border-cyan-500/30 bg-slate-950/60 p-4">
@@ -274,6 +428,85 @@ export default function AdminPage() {
           )}
         </div>
       </div>
+
+      <AnimatePresence>
+        {deleteDepartmentId && departmentToDelete && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+          >
+            <motion.div
+              initial={{ scale: 0.92 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.92 }}
+              className="w-[560px] rounded-2xl border border-slate-700 bg-slate-900 p-8 shadow-2xl"
+            >
+              <h3 className="mb-3 text-2xl font-bold text-red-500">Slett avdeling</h3>
+              <p className="mb-5 text-slate-300">
+                Du slettar <span className="font-semibold text-white">{departmentToDelete.name}</span>.
+              </p>
+
+              {affectedPlayers.length > 0 ? (
+                <div className="space-y-4">
+                  <p className="text-sm text-slate-300">
+                    Vel ny avdeling for kvar spelar i denne avdelinga:
+                  </p>
+
+                  <div className="max-h-[260px] space-y-3 overflow-y-auto pr-1">
+                    {affectedPlayers.map((player) => (
+                      <div key={player.id} className="grid grid-cols-[1fr_1fr] gap-3">
+                        <div className="rounded-lg bg-slate-800 px-3 py-2 text-sm">{player.name}</div>
+                        <select
+                          value={departmentReassignments[player.id] ?? ''}
+                          onChange={(e) =>
+                            setDepartmentReassignments((prev) => ({
+                              ...prev,
+                              [player.id]: e.target.value ? Number(e.target.value) : ''
+                            }))
+                          }
+                          className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white"
+                        >
+                          <option value="">Vel ny avdeling</option>
+                          {availableDepartments.map((department) => (
+                            <option key={department.id} value={department.id}>
+                              {department.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-300">Ingen spelarar er knytte til denne avdelinga.</p>
+              )}
+
+              {departmentMessage && <p className="mt-4 text-sm text-red-400">{departmentMessage}</p>}
+
+              <div className="mt-6 flex justify-end gap-4">
+                <button
+                  onClick={() => {
+                    setDeleteDepartmentId(null)
+                    setDepartmentReassignments({})
+                    setDepartmentMessage('')
+                  }}
+                  className="rounded-lg bg-slate-700 px-4 py-2 hover:bg-slate-600"
+                >
+                  Avbryt
+                </button>
+                <button
+                  onClick={confirmDeleteDepartment}
+                  className="rounded-lg bg-red-600 px-4 py-2 hover:bg-red-700"
+                >
+                  Slett avdeling
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
