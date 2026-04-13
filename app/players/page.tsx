@@ -37,11 +37,19 @@ export default function PlayersPage() {
   async function confirmDeletePlayer() {
     if (!deletePlayerId) return
 
-    await fetch('/api/players', {
+    setMessage('')
+
+    const res = await fetch('/api/players', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: deletePlayerId })
     })
+
+    if (!res.ok) {
+      const maybeJson = await res.json().catch(() => null)
+      setMessage(maybeJson?.error ?? 'Kunne ikkje slette spelaren.')
+      return
+    }
 
     setDeletePlayerId(null)
     loadData()

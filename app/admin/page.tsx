@@ -257,7 +257,7 @@ export default function AdminPage() {
             className="mb-4 w-full rounded-lg border border-cyan-500/40 bg-[#07162f] px-4 py-3 text-white"
           />
           <button
-            onClick={() => setAuthenticated(password === 'admin')}
+            onClick={() => setAuthenticated(password === 'simenertkul')}
             className="w-full rounded-lg bg-cyan-600 py-3 font-bold text-white hover:bg-cyan-500"
           >
             Logg inn
