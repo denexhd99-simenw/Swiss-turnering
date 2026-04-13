@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 
 const DEFAULT_PHASE = 'SWISS'
+export const dynamic = 'force-dynamic'
 
 export async function GET() {
   const matches = await prisma.match.findMany({

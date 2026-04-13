@@ -22,7 +22,7 @@ export default function LeaderboardPage() {
   const [selectedDepartment, setSelectedDepartment] = useState<string>('all')
 
   async function load() {
-    const data = await fetch('/api/overview').then(r => r.json())
+    const data = await fetch('/api/overview', { cache: 'no-store' }).then(r => r.json())
     setPlayers(data.players)
     setDepartments(data.departments)
   }

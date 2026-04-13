@@ -31,7 +31,7 @@ export default function HomePage() {
   const [selectedPlayerId, setSelectedPlayerId] = useState<number | null>(null)
 
   async function load() {
-    const data = await fetch('/api/overview').then((r) => r.json())
+    const data = await fetch('/api/overview', { cache: 'no-store' }).then((r) => r.json())
     setPlayers(data.players)
     setMatches(data.matches)
   }

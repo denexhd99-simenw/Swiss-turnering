@@ -25,7 +25,7 @@ export default function PlayersPage() {
   const [message, setMessage] = useState('')
 
   async function loadData() {
-    const data = await fetch('/api/overview').then((r) => r.json())
+    const data = await fetch('/api/overview', { cache: 'no-store' }).then((r) => r.json())
     setPlayers(data.players)
     setDepartments(data.departments)
   }
